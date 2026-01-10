@@ -95,7 +95,7 @@ def process_video_data(basic_videos, detailed_data_list, channel_metadata=None):
     Args:
         basic_videos (list): Basic video info from list page
         detailed_data_list (list): Detailed video info from individual pages
-        channel_metadata (dict): Channel metadata (niche, country, language) to add to each video
+        channel_metadata (dict): Channel metadata (niche, country, language, channel_title) to add to each video
         
     Returns:
         list: Combined video data
@@ -107,8 +107,13 @@ def process_video_data(basic_videos, detailed_data_list, channel_metadata=None):
         channel_metadata = {
             'niche': 'General',
             'country': '',
-            'default_language': ''
+            'default_language': '',
+            'channel_title': ''
         }
+    
+    # Extract channel name from channel_title (remove @ prefix if present)
+    channel_title = channel_metadata.get('channel_title', '')
+    channel_name = channel_title.lstrip('@') if channel_title else ''
     
     for i, basic_video in enumerate(basic_videos):
         video_data = {**basic_video}
@@ -131,6 +136,7 @@ def process_video_data(basic_videos, detailed_data_list, channel_metadata=None):
                         video_data[key] = value
         
         # Add channel metadata to each video/short
+        video_data['channel_name'] = channel_name
         video_data['channel_niche'] = channel_metadata.get('niche', 'General')
         video_data['channel_country'] = channel_metadata.get('country', '')
         video_data['channel_language'] = channel_metadata.get('default_language', '')
@@ -139,6 +145,9 @@ def process_video_data(basic_videos, detailed_data_list, channel_metadata=None):
         duration = int(video_data.get('duration', 0))
         is_short = duration < 60 or '#shorts' in video_data.get('title', '').lower() or video_data.get('is_short', False)
         video_data['is_short'] = is_short
+        
+        # Format duration to MM:SS
+        video_data['duration'] = format_duration(duration)
         
         videos.append(video_data)
     
@@ -190,6 +199,7 @@ def calculate_channel_metrics(channel_data, videos):
 def export_to_excel(channel_data, videos, shorts):
     """
     Export channel, videos, and shorts data to Excel file with separate sheets.
+    Appends to existing sheets if file exists.
     
     Args:
         channel_data (dict): Channel data
@@ -201,50 +211,89 @@ def export_to_excel(channel_data, videos, shorts):
     """
     try:
         import os
+        from openpyxl import load_workbook
         
         # Get absolute path
         abs_path = os.path.abspath(EXCEL_OUTPUT_FILE)
         
-        with pd.ExcelWriter(abs_path, engine='openpyxl') as writer:
-            # Channel data sheet
-            df_channel = pd.DataFrame([channel_data])
-            df_channel = df_channel[CHANNEL_FIELDS]  # Ensure correct column order
-            df_channel.to_excel(writer, sheet_name=SHEET_CHANNEL_DATA, index=False)
+        # Prepare new channel data
+        df_channel_new = pd.DataFrame([channel_data])
+        df_channel_new = df_channel_new[[col for col in CHANNEL_FIELDS if col in df_channel_new.columns]]
+        
+        # Check if file exists to append or create new
+        file_exists = os.path.exists(abs_path)
+        
+        if file_exists:
+            # Read existing channel data and append
+            df_channel_existing = pd.read_excel(abs_path, sheet_name=SHEET_CHANNEL_DATA)
+            df_channel = pd.concat([df_channel_existing, df_channel_new], ignore_index=True)
+            
+            # Load workbook and replace channel sheet
+            book = load_workbook(abs_path)
+            with pd.ExcelWriter(abs_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_channel.to_excel(writer, sheet_name=SHEET_CHANNEL_DATA, index=False)
+        else:
+            # Create new file
+            with pd.ExcelWriter(abs_path, engine='openpyxl') as writer:
+                df_channel_new.to_excel(writer, sheet_name=SHEET_CHANNEL_DATA, index=False)
+        
+        if DEBUG_MODE:
+            total_channels = len(df_channel) if file_exists else len(df_channel_new)
+            print(f"[OK] Channel data sheet updated (total: {total_channels} channels)")
+            
+        if DEBUG_MODE:
+            total_channels = len(df_channel) if file_exists else len(df_channel_new)
+            print(f"[OK] Channel data sheet updated (total: {total_channels} channels)")
+        
+        # Videos data sheet - append logic
+        if videos:
+            df_videos_new = pd.DataFrame(videos)
+            available_cols = [col for col in VIDEO_FIELDS if col in df_videos_new.columns]
+            df_videos_new = df_videos_new[available_cols]
+            
+            if file_exists:
+                # Read existing videos and append
+                try:
+                    df_videos_existing = pd.read_excel(abs_path, sheet_name=SHEET_VIDEOS_DATA)
+                    df_videos = pd.concat([df_videos_existing, df_videos_new], ignore_index=True)
+                except:
+                    df_videos = df_videos_new
+                
+                book = load_workbook(abs_path)
+                with pd.ExcelWriter(abs_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                    df_videos.to_excel(writer, sheet_name=SHEET_VIDEOS_DATA, index=False)
+            else:
+                with pd.ExcelWriter(abs_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                    df_videos_new.to_excel(writer, sheet_name=SHEET_VIDEOS_DATA, index=False)
             
             if DEBUG_MODE:
-                print(f"[OK] Channel data sheet created ({len(df_channel)} row)")
+                total_videos = len(df_videos) if file_exists and 'df_videos' in locals() else len(df_videos_new)
+                print(f"[OK] Videos data sheet updated ({len(df_videos_new)} new, total: {total_videos})")
+        
+        # Shorts data sheet - append logic
+        if shorts:
+            df_shorts_new = pd.DataFrame(shorts)
+            available_cols = [col for col in VIDEO_FIELDS if col in df_shorts_new.columns]
+            df_shorts_new = df_shorts_new[available_cols]
             
-            # Videos data sheet
-            if videos:
-                df_videos = pd.DataFrame(videos)
-                # Select only expected columns
-                available_cols = [col for col in VIDEO_FIELDS if col in df_videos.columns]
-                df_videos = df_videos[available_cols]
+            if file_exists:
+                # Read existing shorts and append
+                try:
+                    df_shorts_existing = pd.read_excel(abs_path, sheet_name='Shorts_Data')
+                    df_shorts = pd.concat([df_shorts_existing, df_shorts_new], ignore_index=True)
+                except:
+                    df_shorts = df_shorts_new
                 
-                # Format duration column if it exists
-                if 'duration' in df_videos.columns:
-                    df_videos['duration'] = df_videos['duration'].apply(format_duration)
-                
-                df_videos.to_excel(writer, sheet_name=SHEET_VIDEOS_DATA, index=False)
-                
-                if DEBUG_MODE:
-                    print(f"[OK] Videos data sheet created ({len(df_videos)} rows)")
+                book = load_workbook(abs_path)
+                with pd.ExcelWriter(abs_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                    df_shorts.to_excel(writer, sheet_name='Shorts_Data', index=False)
+            else:
+                with pd.ExcelWriter(abs_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                    df_shorts_new.to_excel(writer, sheet_name='Shorts_Data', index=False)
             
-            # Shorts data sheet
-            if shorts:
-                df_shorts = pd.DataFrame(shorts)
-                # Select only expected columns
-                available_cols = [col for col in VIDEO_FIELDS if col in df_shorts.columns]
-                df_shorts = df_shorts[available_cols]
-                
-                # Format duration column if it exists
-                if 'duration' in df_shorts.columns:
-                    df_shorts['duration'] = df_shorts['duration'].apply(format_duration)
-                
-                df_shorts.to_excel(writer, sheet_name='Shorts_Data', index=False)
-                
-                if DEBUG_MODE:
-                    print(f"[OK] Shorts data sheet created ({len(df_shorts)} rows)")
+            if DEBUG_MODE:
+                total_shorts = len(df_shorts) if file_exists and 'df_shorts' in locals() else len(df_shorts_new)
+                print(f"[OK] Shorts data sheet updated ({len(df_shorts_new)} new, total: {total_shorts})")
         
         # Verify file was created
         if os.path.exists(abs_path):
@@ -275,8 +324,13 @@ def load_from_excel(filename=EXCEL_OUTPUT_FILE):
     """
     try:
         df_channel = pd.read_excel(filename, sheet_name=SHEET_CHANNEL_DATA)
-        # Specify dtype for duration column to keep it as string (MM:SS format)
+        # Read videos and keep duration as string to preserve MM:SS format
         df_videos = pd.read_excel(filename, sheet_name=SHEET_VIDEOS_DATA, dtype={'duration': str})
+        # Also read shorts if sheet exists
+        try:
+            df_shorts = pd.read_excel(filename, sheet_name='Shorts_Data', dtype={'duration': str})
+        except:
+            df_shorts = pd.DataFrame()
         
         if DEBUG_MODE:
             print(f"✓ Loaded {len(df_channel)} channels and {len(df_videos)} videos")

@@ -18,11 +18,18 @@ VIDEO_LIMIT_TEST = 1  # For testing purposes
 
 # Chrome Options
 CHROME_OPTIONS = [
-    '--headless',
+    '--headless=new',  # Use new headless mode (more stable)
     '--no-sandbox',
     '--disable-dev-shm-usage',
-    '--disable-blink-features=AutomationControlled',
-    'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    '--disable-blink-features=AutomationControlled',  
+    '--disable-software-rasterizer',
+    '--disable-extensions',
+    '--disable-logging',
+    '--log-level=3',  # Suppress Chrome logs
+    '--window-size=1920,1080',  # Set consistent window size
+    '--disable-web-security',
+    '--ignore-certificate-errors',
+    'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36'
 ]
 
 # XPath Selectors
@@ -62,6 +69,7 @@ CHANNEL_FIELDS = [
 ]
 
 VIDEO_FIELDS = [
+    'channel_name',
     'url',
     'title',
     'view_count',

@@ -34,6 +34,7 @@ def setup_driver():
             options.add_argument(option)
     
     try:
+        # Install ChromeDriver automatically matching the installed Chrome version
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=options

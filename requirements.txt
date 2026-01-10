@@ -5,3 +5,9 @@ openpyxl
 webdriver-manager
 requests
 python-dotenv
+
+# Optional GPU acceleration (for future ML features)
+# Uncomment if you want to use GPU features in the future:
+# torch>=2.0.0
+# torchvision>=0.15.0
+# Pillow>=9.0.0

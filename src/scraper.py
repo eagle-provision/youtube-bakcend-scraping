@@ -9,15 +9,19 @@ from src.config.config import (
     YOUTUBE_BASE_URL, MAX_VIDEOS_DEFAULT, VIDEO_LIMIT_TEST, 
     DEBUG_MODE, REQUEST_DELAY
 )
+from src.config.performance_config import (
+    MAX_CHANNEL_WORKERS, print_performance_config, get_preset_config
+)
 from src.scrapers.channel_scraper import get_channel_data
 from src.scrapers.video_scraper import get_video_links, get_shorts_links, get_detailed_video_data
+from src.scrapers.parallel_video_scraper import scrape_video_details
 from src.utils.data_processor import (
     validate_channel_data, validate_video_data, process_video_data,
     calculate_channel_metrics, export_to_excel
 )
 
 
-def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=None):
+def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=None, parallel_videos=True):
     """
     Complete scraping pipeline for a YouTube channel.
     Extracts both regular videos and shorts into separate datasets.
@@ -27,6 +31,7 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
         max_videos (int): Maximum regular videos to scrape
         max_shorts (int): Maximum shorts to scrape
         channel_metadata (dict): Optional channel metadata to propagate to videos/shorts
+        parallel_videos (bool): Whether to use parallel video detail scraping
         
     Returns:
         tuple: (channel_data, videos, shorts) or (None, [], []) if error
@@ -75,51 +80,15 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
     else:
         print(f"[OK] Found {len(shorts_list)} shorts")
     
-    # Step 4: Get detailed data for regular videos
-    print("\n[4/5] Scraping Video Details...")
+    # Step 4 & 5: Get detailed data for videos and shorts using optimized parallel scraper
+    print("\n[4/5] Scraping Video & Short Details...")
     print("-"*60)
-    detailed_videos_list = []
     
-    for i, video in enumerate(videos_list):
-        try:
-            title = video['title'][:40] if video.get('title') else "No Title"
-            print(f"  [{i+1}/{len(videos_list)}] Processing: {title}...")
-            detailed_data = get_detailed_video_data(video['url'])
-            detailed_videos_list.append(detailed_data)
-            
-            # Delay between requests
-            if i < len(videos_list) - 1:
-                time.sleep(REQUEST_DELAY)
-        
-        except Exception as e:
-            print(f"    [ERROR] Error processing video: {e}")
-            detailed_videos_list.append({})
-    
-    if videos_list:
-        print(f"[OK] Extracted details for {len(detailed_videos_list)} videos")
-    
-    # Step 5: Get detailed data for shorts
-    print("\n[5/5] Scraping Shorts Details...")
-    print("-"*60)
-    detailed_shorts_list = []
-    
-    for i, short in enumerate(shorts_list):
-        try:
-            title = short['title'][:40] if short.get('title') else "No Title"
-            print(f"  [{i+1}/{len(shorts_list)}] Processing: {title}...")
-            detailed_data = get_detailed_video_data(short['url'])
-            detailed_shorts_list.append(detailed_data)
-            
-            # Delay between requests
-            if i < len(shorts_list) - 1:
-                time.sleep(REQUEST_DELAY)
-        
-        except Exception as e:
-            print(f"    [ERROR] Error processing short: {e}")
-            detailed_shorts_list.append({})
-    
-    if shorts_list:
-        print(f"[OK] Extracted details for {len(detailed_shorts_list)} shorts")
+    detailed_videos_list, detailed_shorts_list = scrape_video_details(
+        videos_list, 
+        shorts_list, 
+        parallel=parallel_videos
+    )
     
     # Process and combine data
     print("\n[6/6] Processing Data...")
@@ -130,7 +99,8 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
         channel_metadata = {
             'niche': channel_data.get('niche', 'General'),
             'country': channel_data.get('country', ''),
-            'default_language': channel_data.get('default_language', '')
+            'default_language': channel_data.get('default_language', ''),
+            'channel_title': channel_data.get('channel_handle', channel_name)
         }
     
     videos = process_video_data(videos_list, detailed_videos_list, channel_metadata)
@@ -168,7 +138,8 @@ def save_results(channel_data, videos, shorts):
         return False
 
 
-def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, parallel=True, max_workers=3):
+def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, parallel=True, 
+                            max_workers=None, parallel_videos=True, preset='balanced'):
     """
     Scrape multiple YouTube channels and combine results into a single export.
     Can run in parallel or sequential mode.
@@ -178,7 +149,9 @@ def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, paralle
         max_videos (int): Maximum regular videos per channel
         max_shorts (int): Maximum shorts per channel
         parallel (bool): Whether to scrape channels in parallel (default: True)
-        max_workers (int): Number of parallel workers (default: 3, max recommended: 5)
+        max_workers (int): Number of parallel workers (default: auto from config)
+        parallel_videos (bool): Whether to use parallel video detail scraping
+        preset (str): Performance preset ('fast', 'balanced', 'safe', 'single')
         
     Returns:
         tuple: (all_channel_data, all_videos, all_shorts)
@@ -187,12 +160,26 @@ def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, paralle
     all_videos = []
     all_shorts = []
     
+    # Load performance preset if specified
+    if preset and preset != 'balanced':
+        config = get_preset_config(preset)
+        max_workers = config['max_channel_workers']
+        print(f"\n[Performance] Using '{preset}' preset: {config['description']}")
+    
+    # Use config default if max_workers not specified
+    if max_workers is None:
+        max_workers = MAX_CHANNEL_WORKERS
+    
+    # Print performance configuration
+    print_performance_config()
+    
     print("\n" + "="*60)
     mode = "PARALLEL" if parallel else "SEQUENTIAL"
     print(f"Multi-Channel Scraper - {mode} MODE")
     print(f"Processing {len(channel_list)} channels")
     if parallel:
-        print(f"Using {max_workers} parallel workers")
+        print(f"Using {max_workers} parallel channel workers")
+        print(f"Video detail scraping: {'PARALLEL' if parallel_videos else 'SEQUENTIAL'}")
     print("="*60)
     
     if parallel:
@@ -207,7 +194,8 @@ def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, paralle
                 channel_data, videos, shorts = scrape_channel(
                     channel_name, 
                     max_videos=max_videos, 
-                    max_shorts=max_shorts
+                    max_shorts=max_shorts,
+                    parallel_videos=parallel_videos
                 )
                 
                 if channel_data:
@@ -368,7 +356,8 @@ def save_multi_channel_results(all_channel_data, all_videos, all_shorts):
         return False
 
 
-def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, parallel=True, max_workers=3):
+def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, parallel=True, 
+         max_workers=None, parallel_videos=True, preset='balanced'):
     """
     Main entry point for the scraper.
     Extracts both regular videos and shorts into separate Excel sheets.
@@ -380,7 +369,9 @@ def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, par
         max_videos (int): Maximum regular videos to scrape per channel
         max_shorts (int): Maximum shorts to scrape per channel
         parallel (bool): Whether to scrape channels in parallel (default: True)
-        max_workers (int): Number of parallel workers (default: 3)
+        max_workers (int): Number of parallel workers (default: auto from config)
+        parallel_videos (bool): Whether to use parallel video detail scraping
+        preset (str): Performance preset ('fast', 'balanced', 'safe', 'single')
     """
     try:
         # Determine if single or multiple channels
@@ -391,7 +382,9 @@ def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, par
                 max_videos=max_videos, 
                 max_shorts=max_shorts,
                 parallel=parallel,
-                max_workers=max_workers
+                max_workers=max_workers,
+                parallel_videos=parallel_videos,
+                preset=preset
             )
             
             # Save multi-channel results
@@ -419,7 +412,12 @@ def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, par
         
         elif channel_name:
             # Single channel mode
-            channel_data, videos, shorts = scrape_channel(channel_name, max_videos=max_videos, max_shorts=max_shorts)
+            channel_data, videos, shorts = scrape_channel(
+                channel_name, 
+                max_videos=max_videos, 
+                max_shorts=max_shorts,
+                parallel_videos=parallel_videos
+            )
             
             # Save results
             if channel_data:
