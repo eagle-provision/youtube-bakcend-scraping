@@ -1,0 +1,184 @@
+{
+  "channel_analysis": {
+    "channel_name": "@valorant",
+    "subscribers": "2,820,000",
+    "total_views": "114,000,000",
+    "video_count": 100,
+    "shorts_count": 1,
+    "engagement_metrics": {
+      "views_per_subscriber": 40.43,
+      "avg_views_per_video": 1140000.0
+    },
+    "content_metrics": {
+      "total_content_pieces": 101,
+      "shorts_percentage": 0.99,
+      "regular_videos_percentage": 99.01,
+      "shorts_count": 1,
+      "video_count": 100
+    }
+  },
+  "video_analysis": {
+    "total_videos": 100,
+    "avg_views": "1,993,466",
+    "avg_likes": "49,163",
+    "avg_comments": "1,903",
+    "avg_engagement_rate": "3.9910%",
+    "avg_like_ratio": "95.23%",
+    "avg_comment_ratio": "4.77%",
+    "median_duration_seconds": 135,
+    "high_performers": 25,
+    "medium_performers": 50,
+    "low_performers": 25
+  },
+  "content_type_analysis": {
+    "shorts_vs_videos": {
+      "shorts": {
+        "count": 1,
+        "avg_views": 447000.0,
+        "avg_likes": 17801.0,
+        "avg_comments": 1047.0,
+        "avg_engagement_rate": 4.2165548098434
+      },
+      "videos": {
+        "count": 99,
+        "avg_views": 2009086.8686868686,
+        "avg_likes": 49479.606060606064,
+        "avg_comments": 1911.4646464646464,
+        "avg_engagement_rate": 3.988678177183206
+      },
+      "view_difference_percent": -77.75
+    },
+    "video_length_analysis": {
+      "10-15 min": {
+        "count": 3,
+        "avg_views": 324200.0,
+        "avg_engagement_rate": 11.7377
+      },
+      "0-5 min": {
+        "count": 85,
+        "avg_views": 2136153.0,
+        "avg_engagement_rate": 3.629
+      },
+      "5-10 min": {
+        "count": 7,
+        "avg_views": 2291429.0,
+        "avg_engagement_rate": 5.1855
+      },
+      "15-30 min": {
+        "count": 3,
+        "avg_views": 168667.0,
+        "avg_engagement_rate": 4.3123
+      },
+      "30+ min": {
+        "count": 2,
+        "avg_views": 127500.0,
+        "avg_engagement_rate": 3.0923
+      }
+    }
+  },
+  "insights": {
+    "channel_health": {
+      "avg_engagement_rate": "3.9910%",
+      "engagement_health": "Excellent",
+      "content_consistency": "0.0%",
+      "consistency_status": "Variable",
+      "avg_likes_per_video": "49,163",
+      "avg_comments_per_video": "1,903",
+      "overall_health_score": "-8.8/100"
+    },
+    "top_performers": [
+      {
+        "rank": 1,
+        "title": "Ticking Away ft. Grabbitz & bbno$ (Official Music ",
+        "views": "34,000,000",
+        "likes": "443,352",
+        "comments": "10,319",
+        "uploaded": "2 years ago"
+      },
+      {
+        "rank": 2,
+        "title": "WHY WE FIGHT // EGO ft. Qing Madi // Year 5 Music ",
+        "views": "20,000,000",
+        "likes": "245,417",
+        "comments": "7,709",
+        "uploaded": "7 months ago"
+      },
+      {
+        "rank": 3,
+        "title": "Last Shot ft. templuv & 347aidan (Official Music V",
+        "views": "11,000,000",
+        "likes": "123,409",
+        "comments": "5,361",
+        "uploaded": "3 months ago"
+      },
+      {
+        "rank": 4,
+        "title": "RECKONING // Episode 8 Cinematic - VALORANT",
+        "views": "11,000,000",
+        "likes": "208,446",
+        "comments": "7,281",
+        "uploaded": "1 year ago"
+      },
+      {
+        "rank": 5,
+        "title": "SUPERPOWER ft. KISS OF LIFE and Mark Tuan (Officia",
+        "views": "9,600,000",
+        "likes": "198,552",
+        "comments": "9,173",
+        "uploaded": "1 year ago"
+      }
+    ],
+    "underperformers": [
+      {
+        "rank": 1,
+        "title": "Welcome to Season 2026 // Dev Updates - VALORANT",
+        "views": "6,600",
+        "likes": "1,421",
+        "comments": "130",
+        "uploaded": "19 minutes ago"
+      },
+      {
+        "rank": 2,
+        "title": "Champions 2025 Live Panel Recap // Dev Updates - V",
+        "views": "23,000",
+        "likes": "938",
+        "comments": "91",
+        "uploaded": "3 months ago"
+      },
+      {
+        "rank": 3,
+        "title": "VALORANT Voices: Chat with Phoenix, Mary Ade, and ",
+        "views": "44,000",
+        "likes": "1,972",
+        "comments": "129",
+        "uploaded": "2 months ago"
+      },
+      {
+        "rank": 4,
+        "title": "Your VALORANT Stories \u2013 Journey to the Top",
+        "views": "56,000",
+        "likes": "1,462",
+        "comments": "42",
+        "uploaded": "7 months ago"
+      },
+      {
+        "rank": 5,
+        "title": "Your VALORANT Stories \u2013 Where Game Meets Life",
+        "views": "70,000",
+        "likes": "1,694",
+        "comments": "92",
+        "uploaded": "7 months ago"
+      }
+    ],
+    "content_recommendations": [
+      "\ud83c\udfaf High view variability detected. Focus on understanding what makes top videos successful.",
+      "\u2705 Excellent engagement rate. Keep up the current content strategy!",
+      "\u23f1\ufe0f Shorter videos perform significantly better. Consider reducing video length."
+    ],
+    "growth_opportunities": [
+      "\ud83d\udcc8 High view-to-subscriber ratio. Consider converting viewers to subscribers.",
+      "\ud83d\udcfa Regular videos outperform Shorts. Focus on long-form content.",
+      "\ud83e\udd1d High engagement indicates loyal audience. Build community with live streams or Q&As."
+    ]
+  }
+}
