@@ -34,7 +34,7 @@ XPATH_JOINED_DATE = "//span[contains(text(), 'Joined')]"
 CSS_SUBSCRIBER_COUNT = 'yt-formatted-string#subscriber-count'
 
 # Export Configuration
-EXCEL_OUTPUT_FILE = 'youtube_analytics_scraped.xlsx'
+EXCEL_OUTPUT_FILE = 'data/processed/youtube_analytics_scraped.xlsx'
 SHEET_CHANNEL_DATA = 'Channel_Data'
 SHEET_VIDEOS_DATA = 'Videos_Data'
 

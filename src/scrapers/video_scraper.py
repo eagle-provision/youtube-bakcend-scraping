@@ -7,15 +7,15 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 import re
 import time
-from browser import (
+from src.scrapers.browser import (
     setup_driver, navigate_to_page, wait_for_dynamic_content,
     scroll_page, scroll_to_bottom, find_elements_safe
 )
-from config import (
+from src.config.config import (
     YOUTUBE_BASE_URL, CHANNEL_VIDEOS_PATH, CHANNEL_SHORTS_PATH, BROWSER_WAIT_TIME,
     REQUEST_DELAY, DEBUG_MODE
 )
-from channel_scraper import extract_numeric_value
+from src.scrapers.channel_scraper import extract_numeric_value
 
 
 def get_video_links(channel_url, max_videos=50):

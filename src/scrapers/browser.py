@@ -10,7 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-from config import (
+from src.config.config import (
     CHROME_OPTIONS, BROWSER_WAIT_TIME, DYNAMIC_CONTENT_WAIT, 
     SCROLL_DELAY, DEBUG_MODE
 )

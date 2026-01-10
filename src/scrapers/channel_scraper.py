@@ -7,11 +7,11 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 import re
 import time
-from browser import (
+from src.scrapers.browser import (
     setup_driver, navigate_to_page, wait_for_dynamic_content,
     scroll_page, find_element_safe, find_elements_safe
 )
-from config import (
+from src.config.config import (
     YOUTUBE_BASE_URL, CHANNEL_ABOUT_PATH, BROWSER_WAIT_TIME,
     XPATH_SUBSCRIBERS, XPATH_VIEWS, XPATH_JOINED_DATE,
     IMAGE_DOMAIN_YT3, DEBUG_MODE
@@ -83,15 +83,45 @@ def extract_subscribers(driver):
         int: Subscriber count
     """
     try:
-        sub_elem = driver.find_element(By.XPATH, XPATH_SUBSCRIBERS)
-        sub_text = sub_elem.text
-        if DEBUG_MODE:
-            print(f"  Subscriber element text: '{sub_text}'")
+        # Try multiple methods to find subscriber count
+        # Method 1: Standard XPath
+        try:
+            sub_elem = driver.find_element(By.XPATH, XPATH_SUBSCRIBERS)
+            sub_text = sub_elem.text
+            if sub_text and 'subscriber' in sub_text.lower():
+                subscribers = extract_numeric_value(sub_text)
+                if DEBUG_MODE:
+                    print(f"  ✓ Subscribers: {subscribers:,}")
+                return subscribers
+        except:
+            pass
         
-        subscribers = extract_numeric_value(sub_text)
+        # Method 2: Try CSS selector
+        try:
+            sub_elem = driver.find_element(By.CSS_SELECTOR, 'yt-formatted-string#subscriber-count')
+            sub_text = sub_elem.text
+            if sub_text:
+                subscribers = extract_numeric_value(sub_text)
+                if DEBUG_MODE:
+                    print(f"  ✓ Subscribers (CSS): {subscribers:,}")
+                return subscribers
+        except:
+            pass
+        
+        # Method 3: Search in page source
+        page_source = driver.page_source
+        match = re.search(r'"subscriberCountText":{"simpleText":"([^"]+)"', page_source)
+        if match:
+            sub_text = match.group(1)
+            subscribers = extract_numeric_value(sub_text)
+            if DEBUG_MODE:
+                print(f"  ✓ Subscribers (JSON): {subscribers:,}")
+            return subscribers
+        
         if DEBUG_MODE:
-            print(f"  ✓ Subscribers: {subscribers:,}")
-        return subscribers
+            print(f"  ⚠ Could not extract subscriber count")
+        return 0
+        
     except Exception as e:
         if DEBUG_MODE:
             print(f"  ✗ Error extracting subscribers: {e}")
@@ -181,11 +211,29 @@ def extract_joined_date(driver):
         str: Joined date string
     """
     try:
-        joined_elem = driver.find_element(By.XPATH, XPATH_JOINED_DATE)
-        creation_date = joined_elem.text
+        # Method 1: Standard XPath
+        try:
+            joined_elem = driver.find_element(By.XPATH, XPATH_JOINED_DATE)
+            creation_date = joined_elem.text
+            if DEBUG_MODE:
+                print(f"  ✓ Joined date: {creation_date}")
+            return creation_date
+        except:
+            pass
+        
+        # Method 2: Search in page source
+        page_source = driver.page_source
+        match = re.search(r'Joined\s+([^<]+)', page_source)
+        if match:
+            creation_date = f"Joined {match.group(1)}"
+            if DEBUG_MODE:
+                print(f"  ✓ Joined date (source): {creation_date}")
+            return creation_date
+        
         if DEBUG_MODE:
-            print(f"  ✓ Joined date: {creation_date}")
-        return creation_date
+            print(f"  ⚠ Could not extract joined date")
+        return ""
+        
     except Exception as e:
         if DEBUG_MODE:
             print(f"  ✗ Error extracting joined date: {e}")

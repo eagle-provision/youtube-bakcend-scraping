@@ -4,7 +4,7 @@ Handles data validation, transformation, and Excel export.
 """
 
 import pandas as pd
-from config import (
+from src.config.config import (
     EXCEL_OUTPUT_FILE, SHEET_CHANNEL_DATA, SHEET_VIDEOS_DATA,
     CHANNEL_FIELDS, VIDEO_FIELDS, DEBUG_MODE
 )

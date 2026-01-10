@@ -4,13 +4,14 @@ Coordinates the complete scraping pipeline.
 """
 
 import time
-from config import (
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from src.config.config import (
     YOUTUBE_BASE_URL, MAX_VIDEOS_DEFAULT, VIDEO_LIMIT_TEST, 
     DEBUG_MODE, REQUEST_DELAY
 )
-from channel_scraper import get_channel_data
-from video_scraper import get_video_links, get_shorts_links, get_detailed_video_data
-from data_processor import (
+from src.scrapers.channel_scraper import get_channel_data
+from src.scrapers.video_scraper import get_video_links, get_shorts_links, get_detailed_video_data
+from src.utils.data_processor import (
     validate_channel_data, validate_video_data, process_video_data,
     calculate_channel_metrics, export_to_excel
 )
@@ -167,14 +168,17 @@ def save_results(channel_data, videos, shorts):
         return False
 
 
-def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50):
+def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50, parallel=True, max_workers=3):
     """
     Scrape multiple YouTube channels and combine results into a single export.
+    Can run in parallel or sequential mode.
     
     Args:
         channel_list (list): List of channel names (e.g., ['@valorant', '@mkbhd'])
         max_videos (int): Maximum regular videos per channel
         max_shorts (int): Maximum shorts per channel
+        parallel (bool): Whether to scrape channels in parallel (default: True)
+        max_workers (int): Number of parallel workers (default: 3, max recommended: 5)
         
     Returns:
         tuple: (all_channel_data, all_videos, all_shorts)
@@ -184,38 +188,102 @@ def scrape_multiple_channels(channel_list, max_videos=50, max_shorts=50):
     all_shorts = []
     
     print("\n" + "="*60)
-    print(f"Multi-Channel Scraper - Processing {len(channel_list)} channels")
+    mode = "PARALLEL" if parallel else "SEQUENTIAL"
+    print(f"Multi-Channel Scraper - {mode} MODE")
+    print(f"Processing {len(channel_list)} channels")
+    if parallel:
+        print(f"Using {max_workers} parallel workers")
     print("="*60)
     
-    for idx, channel_name in enumerate(channel_list, 1):
-        print(f"\n{'='*60}")
-        print(f"[Channel {idx}/{len(channel_list)}] {channel_name}")
-        print("="*60)
-        
-        try:
-            # Scrape individual channel
-            channel_data, videos, shorts = scrape_channel(channel_name, max_videos=max_videos, max_shorts=max_shorts)
+    if parallel:
+        # Parallel scraping with ThreadPoolExecutor
+        def scrape_single_channel(channel_name, idx, total):
+            """Helper function to scrape a single channel."""
+            print(f"\n{'='*60}")
+            print(f"[Channel {idx}/{total}] {channel_name} - Starting...")
+            print("="*60)
             
-            if channel_data:
-                all_channel_data.append(channel_data)
-                all_videos.extend(videos)
-                all_shorts.extend(shorts)
+            try:
+                channel_data, videos, shorts = scrape_channel(
+                    channel_name, 
+                    max_videos=max_videos, 
+                    max_shorts=max_shorts
+                )
                 
-                print(f"\n[OK] Successfully scraped {channel_name}")
-                print(f"  - Videos: {len(videos)}")
-                print(f"  - Shorts: {len(shorts)}")
-            else:
-                print(f"\n[ERROR] Failed to scrape {channel_name}")
-            
-            # Delay between channels to avoid rate limiting
-            if idx < len(channel_list):
-                print(f"\nWaiting {REQUEST_DELAY} seconds before next channel...")
-                time.sleep(REQUEST_DELAY)
+                if channel_data:
+                    print(f"\n[OK] Successfully scraped {channel_name}")
+                    print(f"  - Videos: {len(videos)}")
+                    print(f"  - Shorts: {len(shorts)}")
+                    return {
+                        'success': True,
+                        'channel': channel_name,
+                        'data': (channel_data, videos, shorts)
+                    }
+                else:
+                    print(f"\n[ERROR] Failed to scrape {channel_name}")
+                    return {'success': False, 'channel': channel_name, 'data': None}
+                    
+            except Exception as e:
+                print(f"\n[ERROR] Error scraping {channel_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                return {'success': False, 'channel': channel_name, 'data': None}
         
-        except Exception as e:
-            print(f"\n[ERROR] Error scraping {channel_name}: {e}")
-            import traceback
-            traceback.print_exc()
+        # Execute parallel scraping
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks with staggered start
+            future_to_channel = {}
+            for idx, channel in enumerate(channel_list):
+                # Stagger the start of each worker by 2 seconds to avoid overwhelming YouTube
+                if idx > 0:
+                    time.sleep(2)
+                future = executor.submit(scrape_single_channel, channel, idx+1, len(channel_list))
+                future_to_channel[future] = channel
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_channel):
+                result = future.result()
+                if result['success'] and result['data']:
+                    channel_data, videos, shorts = result['data']
+                    all_channel_data.append(channel_data)
+                    all_videos.extend(videos)
+                    all_shorts.extend(shorts)
+    
+    else:
+        # Sequential scraping (original method)
+        for idx, channel_name in enumerate(channel_list, 1):
+            print(f"\n{'='*60}")
+            print(f"[Channel {idx}/{len(channel_list)}] {channel_name}")
+            print("="*60)
+            
+            try:
+                # Scrape individual channel
+                channel_data, videos, shorts = scrape_channel(
+                    channel_name, 
+                    max_videos=max_videos, 
+                    max_shorts=max_shorts
+                )
+                
+                if channel_data:
+                    all_channel_data.append(channel_data)
+                    all_videos.extend(videos)
+                    all_shorts.extend(shorts)
+                    
+                    print(f"\n[OK] Successfully scraped {channel_name}")
+                    print(f"  - Videos: {len(videos)}")
+                    print(f"  - Shorts: {len(shorts)}")
+                else:
+                    print(f"\n[ERROR] Failed to scrape {channel_name}")
+                
+                # Delay between channels to avoid rate limiting
+                if idx < len(channel_list):
+                    print(f"\nWaiting {REQUEST_DELAY} seconds before next channel...")
+                    time.sleep(REQUEST_DELAY)
+            
+            except Exception as e:
+                print(f"\n[ERROR] Error scraping {channel_name}: {e}")
+                import traceback
+                traceback.print_exc()
     
     return all_channel_data, all_videos, all_shorts
 
@@ -243,7 +311,7 @@ def save_multi_channel_results(all_channel_data, all_videos, all_shorts):
     try:
         import pandas as pd
         import os
-        from config import EXCEL_OUTPUT_FILE, CHANNEL_FIELDS, VIDEO_FIELDS
+        from src.config.config import EXCEL_OUTPUT_FILE, CHANNEL_FIELDS, VIDEO_FIELDS
         
         # Create DataFrames
         channels_df = pd.DataFrame(all_channel_data)
@@ -269,7 +337,7 @@ def save_multi_channel_results(all_channel_data, all_videos, all_shorts):
             shorts_df = shorts_df[VIDEO_FIELDS]
         
         # Export to Excel with absolute path
-        output_file = 'multi_channel_' + EXCEL_OUTPUT_FILE
+        output_file = 'data/processed/multi_channel_youtube_analytics_scraped.xlsx'
         abs_path = os.path.abspath(output_file)
         
         with pd.ExcelWriter(abs_path, engine='openpyxl') as writer:
@@ -300,24 +368,30 @@ def save_multi_channel_results(all_channel_data, all_videos, all_shorts):
         return False
 
 
-def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50):
+def main(channel_name=None, channel_list=None, max_videos=50, max_shorts=50, parallel=True, max_workers=3):
     """
     Main entry point for the scraper.
     Extracts both regular videos and shorts into separate Excel sheets.
-    Supports single channel or multiple channels.
+    Supports single channel or multiple channels (parallel or sequential).
     
     Args:
         channel_name (str): Single YouTube channel name (e.g., '@valorant')
         channel_list (list): List of YouTube channel names (e.g., ['@valorant', '@mkbhd'])
         max_videos (int): Maximum regular videos to scrape per channel
         max_shorts (int): Maximum shorts to scrape per channel
+        parallel (bool): Whether to scrape channels in parallel (default: True)
+        max_workers (int): Number of parallel workers (default: 3)
     """
     try:
         # Determine if single or multiple channels
         if channel_list and len(channel_list) > 0:
             # Multi-channel mode
             all_channel_data, all_videos, all_shorts = scrape_multiple_channels(
-                channel_list, max_videos=max_videos, max_shorts=max_shorts
+                channel_list, 
+                max_videos=max_videos, 
+                max_shorts=max_shorts,
+                parallel=parallel,
+                max_workers=max_workers
             )
             
             # Save multi-channel results
