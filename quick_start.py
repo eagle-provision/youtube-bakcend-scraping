@@ -17,6 +17,13 @@ def quick_test():
     print("QUICK TEST MODE - Testing scraper setup")
     print("="*70)
     
+    # Clear previous output for fresh test
+    import os
+    output_file = 'data/processed/youtube_analytics_scraped.xlsx'
+    if os.path.exists(output_file):
+        os.remove(output_file)
+        print(f"\n✓ Cleared previous output file for fresh test")
+    
     main(
         channel_name='@mkbhd',
         max_videos=5,           # Small dataset for testing

@@ -13,15 +13,19 @@ from src.config.performance_config import (
     MAX_CHANNEL_WORKERS, print_performance_config, get_preset_config
 )
 from src.scrapers.channel_scraper import get_channel_data
-from src.scrapers.video_scraper import get_video_links, get_shorts_links, get_detailed_video_data
+from src.scrapers.video_scraper import (
+    get_video_links, get_shorts_links, get_detailed_video_data,
+    get_total_videos_count, get_total_shorts_count,
+    calculate_total_views_from_pages
+)
 from src.scrapers.parallel_video_scraper import scrape_video_details
 from src.utils.data_processor import (
     validate_channel_data, validate_video_data, process_video_data,
-    calculate_channel_metrics, export_to_excel
+    calculate_channel_metrics, calculate_daily_metrics, export_to_excel
 )
 
 
-def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=None, parallel_videos=True):
+def scrape_channel(channel_name, max_videos=50, max_shorts=50, parallel_videos=True):
     """
     Complete scraping pipeline for a YouTube channel.
     Extracts both regular videos and shorts into separate datasets.
@@ -30,7 +34,6 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
         channel_name (str): YouTube channel name (e.g., '@valorant')
         max_videos (int): Maximum regular videos to scrape
         max_shorts (int): Maximum shorts to scrape
-        channel_metadata (dict): Optional channel metadata to propagate to videos/shorts
         parallel_videos (bool): Whether to use parallel video detail scraping
         
     Returns:
@@ -51,11 +54,30 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
         print("[ERROR] Failed to scrape channel data")
         return None, [], []
     
+    # Extract channel_id for linking
+    channel_id = channel_data.get('channel_id', '')
+    channel_url = f'{YOUTUBE_BASE_URL}/{channel_name}'
+    
+    # Step 1.5: Get actual total counts from YouTube
+    print("\n[1.5/5] Getting Actual Content Counts...")
+    print("-"*60)
+    
+    # Calculate total views by scrolling through all content pages
+    # This also gives us accurate video/shorts counts
+    video_count, shorts_count, video_views, shorts_views, accurate_total_views = calculate_total_views_from_pages(channel_url)
+    
+    # Update channel data with actual counts and accurate total views
+    channel_data['video_count'] = video_count
+    channel_data['shorts_count'] = shorts_count
+    channel_data['total_content_count'] = video_count + shorts_count
+    channel_data['total_views'] = accurate_total_views
+    
     # Step 2: Get regular videos
     print("\n[2/5] Scraping Regular Videos...")
     print("-"*60)
-    channel_url = f'{YOUTUBE_BASE_URL}/{channel_name}'
-    videos_list = get_video_links(channel_url, max_videos=max_videos)
+    
+    # Get basic video list (limited to max_videos for detailed scraping)
+    videos_list = get_video_links(channel_url, max_videos=max_videos, total_videos_count=video_count)
     videos_list = validate_video_data(videos_list)
     
     # Filter to only long videos (not shorts)
@@ -64,21 +86,17 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
     if original_count > len(videos_list):
         print(f"[OK] Filtered to {len(videos_list)} LONG videos (out of {original_count})")
     
-    if not videos_list:
-        print("⚠ No regular videos found")
-    else:
-        print(f"[OK] Found {len(videos_list)} regular videos")
+    print(f"[OK] Found {len(videos_list)} regular videos for detailed scraping")
     
     # Step 3: Get shorts from dedicated tab
     print("\n[3/5] Scraping Shorts...")
     print("-"*60)
-    shorts_list = get_shorts_links(channel_url, max_shorts=max_shorts)
+    
+    # Get basic shorts list (limited to max_shorts for detailed scraping)
+    shorts_list = get_shorts_links(channel_url, max_shorts=max_shorts, total_shorts_count=shorts_count)
     shorts_list = validate_video_data(shorts_list)
     
-    if not shorts_list:
-        print("⚠ No shorts found")
-    else:
-        print(f"[OK] Found {len(shorts_list)} shorts")
+    print(f"[OK] Found {len(shorts_list)} shorts for detailed scraping")
     
     # Step 4 & 5: Get detailed data for videos and shorts using optimized parallel scraper
     print("\n[4/5] Scraping Video & Short Details...")
@@ -91,27 +109,23 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, channel_metadata=
     )
     
     # Process and combine data
-    print("\n[6/6] Processing Data...")
+    print("\n[5/5] Processing Data...")
     print("-"*60)
     
-    # Prepare channel metadata to propagate to videos/shorts
-    if not channel_metadata:
-        channel_metadata = {
-            'niche': channel_data.get('niche', 'General'),
-            'country': channel_data.get('country', ''),
-            'default_language': channel_data.get('default_language', ''),
-            'channel_title': channel_data.get('channel_handle', channel_name)
-        }
-    
-    videos = process_video_data(videos_list, detailed_videos_list, channel_metadata)
+    # Process videos with channel_id for linking (only the limited set for detailed scraping)
+    videos = process_video_data(videos_list, detailed_videos_list, channel_id)
     videos = validate_video_data(videos)
     
-    shorts = process_video_data(shorts_list, detailed_shorts_list, channel_metadata)
+    shorts = process_video_data(shorts_list, detailed_shorts_list, channel_id)
     shorts = validate_video_data(shorts)
     
-    # Calculate aggregate metrics using all content
-    all_content = videos + shorts
-    channel_data = calculate_channel_metrics(channel_data, all_content)
+    # Calculate aggregate metrics using long videos and shorts separately
+    channel_data = calculate_channel_metrics(channel_data, videos, shorts)
+    
+    # Calculate daily metrics by comparing with historical data
+    print("\n[6/6] Calculating Daily Metrics...")
+    print("-"*60)
+    channel_data = calculate_daily_metrics(channel_data)
     
     return channel_data, videos, shorts
 

@@ -14,7 +14,7 @@ from src.scrapers.browser import (
 from src.config.config import (
     YOUTUBE_BASE_URL, CHANNEL_ABOUT_PATH, BROWSER_WAIT_TIME,
     XPATH_SUBSCRIBERS, XPATH_VIEWS, XPATH_JOINED_DATE,
-    IMAGE_DOMAIN_YT3, DEBUG_MODE
+    IMAGE_DOMAIN_YT3, DEBUG_MODE, DYNAMIC_CONTENT_WAIT
 )
 
 
@@ -128,31 +128,83 @@ def extract_subscribers(driver):
         return 0
 
 
-def extract_total_views(driver):
+def extract_total_views(driver, page_source):
     """
-    Extract total channel views (maximum of all view count elements).
+    Extract total channel views using multiple methods for accuracy.
+    This is the total views across ALL videos and shorts on the channel.
     
     Args:
         driver: WebDriver instance
+        page_source (str): Page HTML source
         
     Returns:
         int: Total views count
     """
     try:
-        views_elements = driver.find_elements(By.XPATH, XPATH_VIEWS)
+        # Method 1: Look for "X views" text in About page stats
+        # This appears in the page source as part of channel stats
+        match = re.search(r'"viewCountText":\s*{\s*"simpleText":\s*"([^"]+\s+views?)"', page_source)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 1000:  # Sanity check - channels should have >1000 views
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (viewCountText): {total_views:,}")
+                return total_views
+        
+        # Method 2: Look for stats in aboutChannelViewModel
+        match = re.search(r'"stats":\s*\[.*?"content":\s*"([^"]+\s+views?)"', page_source, re.DOTALL)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 1000:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (stats): {total_views:,}")
+                return total_views
+        
+        # Method 3: Look for view count in channel header
+        match = re.search(r'"subscriberCountText".*?"viewCountText":\s*{\s*"simpleText":\s*"([^"]+)"', page_source, re.DOTALL)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 1000:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (header): {total_views:,}")
+                return total_views
+        
+        # Method 4: Extract from XPath elements containing "views"
+        views_elements = driver.find_elements(By.XPATH, "//span[contains(text(), 'views') or contains(text(), 'view')]")
         view_counts = []
         
         for views_elem in views_elements:
-            views_text = views_elem.text
-            count = extract_numeric_value(views_text)
-            if count > 0:
-                view_counts.append(count)
+            views_text = views_elem.text.strip()
+            if 'view' in views_text.lower():
+                count = extract_numeric_value(views_text)
+                if count > 1000:  # Reasonable threshold
+                    view_counts.append(count)
         
         if view_counts:
+            # Take the maximum as it's likely the total channel views
             total_views = max(view_counts)
             if DEBUG_MODE:
-                print(f"  ✓ Total Views: {total_views:,}")
+                print(f"  ✓ Total Views (XPath): {total_views:,}")
             return total_views
+        
+        # Method 5: Look in About page table/stats section
+        try:
+            soup = BeautifulSoup(page_source, 'html.parser')
+            # Find all text containing "views"
+            for element in soup.find_all(text=re.compile(r'\d+.*views?', re.IGNORECASE)):
+                count = extract_numeric_value(element)
+                if count > 1000:
+                    if DEBUG_MODE:
+                        print(f"  ✓ Total Views (soup): {count:,}")
+                    return count
+        except:
+            pass
+        
+        if DEBUG_MODE:
+            print(f"  ⚠ Could not extract total views")
         return 0
     except Exception as e:
         if DEBUG_MODE:
@@ -338,6 +390,57 @@ def extract_channel_country(driver, page_source):
         return ""
 
 
+def extract_channel_id_and_url(channel_name, page_source):
+    """
+    Extract channel ID and construct full channel URL.
+    
+    Args:
+        channel_name (str): Channel handle (e.g., '@vobane')
+        page_source (str): Page HTML source
+        
+    Returns:
+        tuple: (channel_id, channel_url)
+    """
+    try:
+        # Extract channel ID from page source
+        # Method 1: Look for channelId in JSON
+        match = re.search(r'"channelId":"([^"]+)"', page_source)
+        if match:
+            channel_id = match.group(1)
+            if DEBUG_MODE:
+                print(f"  ✓ Channel ID: {channel_id}")
+        else:
+            # Method 2: Look for externalId
+            match = re.search(r'"externalId":"([^"]+)"', page_source)
+            if match:
+                channel_id = match.group(1)
+                if DEBUG_MODE:
+                    print(f"  ✓ Channel ID (externalId): {channel_id}")
+            else:
+                channel_id = ""
+                if DEBUG_MODE:
+                    print(f"  ⚠ Could not extract channel ID")
+        
+        # Construct channel URL
+        # Prefer handle format, fallback to ID format
+        if channel_name.startswith('@'):
+            channel_url = f"{YOUTUBE_BASE_URL}/{channel_name}"
+        elif channel_id:
+            channel_url = f"{YOUTUBE_BASE_URL}/channel/{channel_id}"
+        else:
+            channel_url = ""
+        
+        if DEBUG_MODE and channel_url:
+            print(f"  ✓ Channel URL: {channel_url}")
+        
+        return channel_id, channel_url
+        
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"  ✗ Error extracting channel ID/URL: {e}")
+        return "", ""
+
+
 def extract_channel_language(page_source):
     """
     Extract default channel language.
@@ -444,6 +547,77 @@ def extract_channel_niche(channel_data, page_source):
         return "General"
 
 
+def extract_monetization_status(driver, page_source):
+    """
+    Detect if channel is monetized by checking for visible indicators.
+    
+    Monetization indicators:
+    - "Join" button (channel membership)
+    - Store/merchandise shelf
+    - Super Thanks enabled
+    - Community posts with paid features
+    
+    Args:
+        driver: WebDriver instance
+        page_source (str): Page HTML source
+        
+    Returns:
+        str: "Monetized", "Not Monetized", or "Unknown"
+    """
+    try:
+        indicators = []
+        
+        # Check 1: Look for "Join" button (channel membership)
+        try:
+            join_button = driver.find_elements(By.XPATH, "//button[@aria-label='Join']")
+            if join_button:
+                indicators.append("Membership")
+                if DEBUG_MODE:
+                    print(f"  ✓ Found membership button")
+        except:
+            pass
+        
+        # Check 2: Look for membership in page source
+        if '"sponsor"' in page_source or '"membership"' in page_source.lower():
+            indicators.append("Membership")
+            if DEBUG_MODE:
+                print(f"  ✓ Found membership in source")
+        
+        # Check 3: Look for store/merchandise
+        if '"apparel"' in page_source or '"merchandise"' in page_source.lower():
+            indicators.append("Merchandise")
+            if DEBUG_MODE:
+                print(f"  ✓ Found merchandise")
+        
+        # Check 4: Look for Super Thanks/Super Chat
+        if 'super thanks' in page_source.lower() or 'superchat' in page_source.lower():
+            indicators.append("Super Features")
+            if DEBUG_MODE:
+                print(f"  ✓ Found Super features")
+        
+        # Check 5: Look for YPP (YouTube Partner Program) indicators
+        if '"isPartner":true' in page_source or '"isVerified":true' in page_source:
+            indicators.append("YPP")
+            if DEBUG_MODE:
+                print(f"  ✓ Found YPP indicator")
+        
+        # Determine status based on indicators found
+        if indicators:
+            status = f"Monetized ({', '.join(set(indicators))})"
+            if DEBUG_MODE:
+                print(f"  ✓ Monetization Status: {status}")
+            return status
+        else:
+            if DEBUG_MODE:
+                print(f"  ⚠ No monetization indicators found")
+            return "Unknown"
+            
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"  ✗ Error detecting monetization: {e}")
+        return "Unknown"
+
+
 def get_channel_data(channel_name):
     """
     Scrape complete channel data from YouTube.
@@ -476,41 +650,55 @@ def get_channel_data(channel_name):
         
         # Extract all metrics
         print("  Extracting channel metrics...")
+        
+        # Extract channel ID and URL first
+        channel_id, channel_url = extract_channel_id_and_url(channel_name, page_source)
+        
         subscribers = extract_subscribers(driver)
-        total_views = extract_total_views(driver)
+        total_views = extract_total_views(driver, page_source)
         description = extract_description(driver, page_source)
         creation_date = extract_joined_date(driver)
         banner_url, profile_pic_url = extract_images(page_source)
+        country = extract_channel_country(driver, page_source)
+        language = extract_channel_language(page_source)
+        monetization_status = extract_monetization_status(driver, page_source)
         
-        # Create initial channel data for niche extraction
+        # Get current scrape date
+        from datetime import datetime
+        scrape_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Create channel data with proper structure per PDF
         channel_data = {
-            'channel_title': channel_name,
+            # Static fields
+            'channel_id': channel_id,
+            'channel_url': channel_url,
+            'channel_handle': channel_name,
+            'channel_title': channel_name.lstrip('@'),
             'channel_description': description,
-            'subscribers': subscribers,
-            'total_views': total_views,
             'creation_date': creation_date,
             'banner_url': banner_url,
             'profile_pic_url': profile_pic_url,
+            'country': country,
+            'default_language': language,
+            'monetization_status': monetization_status,
+            
+            # Evolving fields (to be updated daily)
+            'scrape_date': scrape_date,
+            'subscribers': subscribers,
+            'total_views': total_views,
             'video_count': 0,  # To be filled by video scraping
             'shorts_count': 0,  # To be filled by video scraping
+            'total_content_count': 0,  # To be filled by video scraping
             'last_posted_date': '',  # To be filled by video scraping
-            'avg_recent_views': 0  # To be filled by video scraping
+            'daily_subscriber_change': 0,  # Computed from previous day
+            'daily_views_change': 0,  # Computed from previous day
+            'growth_rate': 0.0  # Computed from previous day
         }
         
-        # Extract new metadata fields
-        country = extract_channel_country(driver, page_source)
-        language = extract_channel_language(page_source)
-        niche = extract_channel_niche(channel_data, page_source)
-        
-        # Add new fields to channel data
-        channel_data['country'] = country
-        channel_data['default_language'] = language
-        channel_data['niche'] = niche
-        
         print(f"  ✓ Channel: {channel_name}")
+        print(f"  ✓ Channel ID: {channel_id if channel_id else 'Not found'}")
         print(f"  ✓ Subscribers: {subscribers:,}")
         print(f"  ✓ Total Views: {total_views:,}")
-        print(f"  ✓ Niche: {niche}")
         print(f"  ✓ Country: {country if country else 'Not specified'}")
         print(f"  ✓ Language: {language if language else 'Not specified'}")
         

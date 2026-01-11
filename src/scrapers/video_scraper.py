@@ -18,7 +18,321 @@ from src.config.config import (
 from src.scrapers.channel_scraper import extract_numeric_value
 
 
-def get_video_links(channel_url, max_videos=50):
+def calculate_total_views_from_pages(channel_url):
+    """
+    Calculate total channel views by scrolling through Videos and Shorts tabs
+    and summing up all view counts from thumbnails.
+    This is much faster than scraping detailed data for every video.
+    
+    Args:
+        channel_url (str): Channel URL
+        
+    Returns:
+        tuple: (total_videos_found, total_shorts_found, total_video_views, total_shorts_views, total_views)
+    """
+    print("\n  Calculating total views by scrolling through content pages...")
+    
+    # Calculate video views
+    video_count, video_views = _get_all_view_counts_from_tab(channel_url, CHANNEL_VIDEOS_PATH, "Videos")
+    
+    # Calculate shorts views
+    shorts_count, shorts_views = _get_all_view_counts_from_tab(channel_url, CHANNEL_SHORTS_PATH, "Shorts")
+    
+    total_views = video_views + shorts_views
+    
+    print(f"  ✓ Total channel views calculated: {total_views:,}")
+    print(f"    - Videos: {video_count} videos with {video_views:,} views")
+    print(f"    - Shorts: {shorts_count} shorts with {shorts_views:,} views")
+    
+    return video_count, shorts_count, video_views, shorts_views, total_views
+
+
+def _get_all_view_counts_from_tab(channel_url, tab_path, tab_name):
+    """
+    Scroll through a tab (Videos or Shorts) and extract all view counts.
+    
+    Args:
+        channel_url (str): Channel URL
+        tab_path (str): Tab path (/videos or /shorts)
+        tab_name (str): Tab name for logging
+        
+    Returns:
+        tuple: (item_count, total_views)
+    """
+    driver = setup_driver()
+    
+    try:
+        tab_url = f'{channel_url}{tab_path}'
+        if not navigate_to_page(driver, tab_url, max_retries=2):
+            print(f"    ✗ Failed to navigate to {tab_name} tab after retries")
+            return 0, 0
+        
+        wait_for_dynamic_content(driver)
+        
+        # Scroll to load all content
+        # Keep scrolling until no new content loads
+        previous_count = 0
+        no_change_count = 0
+        max_scrolls = 50  # Safety limit
+        
+        for i in range(max_scrolls):
+            scroll_to_bottom(driver)
+            time.sleep(1.5)
+            
+            # Check if new content loaded
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            current_count = len(soup.find_all('ytd-rich-item-renderer'))
+            
+            if current_count == previous_count:
+                no_change_count += 1
+                if no_change_count >= 3:  # Stop if no new content after 3 scrolls
+                    break
+            else:
+                no_change_count = 0
+            
+            previous_count = current_count
+            
+            if DEBUG_MODE and i % 5 == 0:
+                print(f"    Scrolling {tab_name} tab... found {current_count} items")
+        
+        # Extract all view counts from the page
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        # Get all items (this is the actual count we found during scrolling)
+        all_items = soup.find_all('ytd-rich-item-renderer')
+        actual_item_count = len(all_items)
+        
+        # Debug: Sample HTML from first item
+        if DEBUG_MODE and tab_name == "Shorts":
+            if all_items:
+                print(f"\n    DEBUG: Sample {tab_name} HTML structure:")
+                for i, item in enumerate(all_items[:1], 1):
+                    print(f"    Sample {i} text: {item.get_text(separator=' ', strip=True)[:200]}...")
+        
+        # Extract view counts item by item (most reliable method)
+        view_counts = []
+        for idx, item in enumerate(all_items):
+            item_html = str(item)
+            item_text = item.get_text(separator=' ', strip=True)
+            view_count = 0
+            
+            # Try multiple extraction methods for each item
+            # Method 1: yt-core-attributed-string (primary for shorts)
+            if not view_count:
+                view_span = item.find('span', class_='yt-core-attributed-string')
+                if view_span:
+                    text = view_span.get_text(strip=True)
+                    if 'view' in text.lower():
+                        view_count = extract_numeric_value(text)
+            
+            # Method 2: inline-metadata-item (primary for videos)
+            if not view_count:
+                metadata = item.find('span', class_='inline-metadata-item')
+                if metadata:
+                    text = metadata.get_text(strip=True)
+                    if 'view' in text.lower():
+                        view_count = extract_numeric_value(text)
+            
+            # Method 3: metadata-line div
+            if not view_count:
+                meta_line = item.find('div', id='metadata-line')
+                if meta_line:
+                    text = meta_line.get_text(strip=True)
+                    matches = re.findall(r'([\d.]+[KMB]?)\s*views?', text, re.IGNORECASE)
+                    if matches:
+                        view_count = extract_numeric_value(matches[0])
+            
+            # Method 4: Regex search in item text
+            if not view_count:
+                # Look for patterns like "11K views" or "1,234 views"
+                matches = re.findall(r'([\d,]+\.?\d*[KMB]?)\s*views?', item_text, re.IGNORECASE)
+                if matches:
+                    view_count = extract_numeric_value(matches[0])
+            
+            # Method 5: aria-label attribute
+            if not view_count:
+                elements_with_aria = item.find_all(attrs={'aria-label': True})
+                for elem in elements_with_aria:
+                    aria_text = elem.get('aria-label', '')
+                    matches = re.findall(r'([\d,]+\.?\d*[KMB]?)\s*views?', aria_text, re.IGNORECASE)
+                    if matches:
+                        view_count = extract_numeric_value(matches[0])
+                        break
+            
+            # Method 6: Search in JSON embedded in HTML
+            if not view_count:
+                json_matches = re.findall(r'"viewCountText".*?"simpleText":\s*"([^"]+)"', item_html)
+                for match in json_matches:
+                    if 'view' in match.lower():
+                        view_count = extract_numeric_value(match)
+                        break
+            
+            if view_count > 0:
+                view_counts.append(view_count)
+        
+        if DEBUG_MODE and tab_name == "Shorts":
+            print(f"    Extracted view counts from {len(view_counts)}/{actual_item_count} items")
+            if len(view_counts) < actual_item_count:
+                print(f"    WARNING: Missing view counts for {actual_item_count - len(view_counts)} items")
+        
+        total_views = sum(view_counts)
+        
+        print(f"    ✓ {tab_name}: Found {actual_item_count} items with total {total_views:,} views")
+        
+        return actual_item_count, total_views
+        
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"    ✗ Error calculating {tab_name} views: {e}")
+        return 0, 0
+    finally:
+        driver.quit()
+
+
+def get_total_videos_count(channel_url):
+    """
+    Get the actual total number of videos from the channel's Videos tab.
+    
+    Args:
+        channel_url (str): Channel URL
+        
+    Returns:
+        int: Total number of videos on the channel
+    """
+    driver = setup_driver()
+    
+    try:
+        videos_url = f'{channel_url}{CHANNEL_VIDEOS_PATH}'
+        if not navigate_to_page(driver, videos_url):
+            return 0
+        
+        wait_for_dynamic_content(driver)
+        
+        # Method 1: Look for the tab count (e.g., "Videos 150")
+        try:
+            # Find the Videos tab element that shows the count
+            tabs = driver.find_elements(By.CSS_SELECTOR, 'yt-tab-shape')
+            for tab in tabs:
+                text = tab.text.strip()
+                if 'video' in text.lower() and not 'short' in text.lower():
+                    # Extract number from text like "Videos 150"
+                    count = extract_numeric_value(text)
+                    if count > 0:
+                        if DEBUG_MODE:
+                            print(f"  ✓ Total videos count from tab: {count:,}")
+                        return count
+        except:
+            pass
+        
+        # Method 2: Count from page source JSON
+        page_source = driver.page_source
+        match = re.search(r'"videosCountText":{"runs":\[{"text":"([^"]+)"', page_source)
+        if match:
+            count_text = match.group(1)
+            count = extract_numeric_value(count_text)
+            if count > 0:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total videos count from JSON: {count:,}")
+                return count
+        
+        # Method 3: Scroll and count all elements (fallback)
+        for _ in range(3):
+            scroll_to_bottom(driver)
+            time.sleep(1)
+        
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        video_elements = soup.find_all('ytd-rich-item-renderer')
+        count = len(video_elements)
+        
+        if DEBUG_MODE:
+            print(f"  ✓ Total videos count from elements: {count:,}")
+        
+        return count
+        
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"  ✗ Error getting total videos count: {e}")
+        return 0
+    finally:
+        driver.quit()
+
+
+def get_total_shorts_count(channel_url):
+    """
+    Get the actual total number of shorts from the channel's Shorts tab.
+    
+    Args:
+        channel_url (str): Channel URL
+        
+    Returns:
+        int: Total number of shorts on the channel
+    """
+    driver = setup_driver()
+    
+    try:
+        shorts_url = f'{channel_url}{CHANNEL_SHORTS_PATH}'
+        if not navigate_to_page(driver, shorts_url):
+            return 0
+        
+        wait_for_dynamic_content(driver)
+        
+        # Method 1: Look for the tab count (e.g., "Shorts 45")
+        try:
+            # Find the Shorts tab element that shows the count
+            tabs = driver.find_elements(By.CSS_SELECTOR, 'yt-tab-shape')
+            for tab in tabs:
+                text = tab.text.strip()
+                if 'short' in text.lower():
+                    # Extract number from text like "Shorts 45"
+                    count = extract_numeric_value(text)
+                    if count > 0:
+                        if DEBUG_MODE:
+                            print(f"  ✓ Total shorts count from tab: {count:,}")
+                        return count
+        except:
+            pass
+        
+        # Method 2: Count from page source JSON
+        page_source = driver.page_source
+        match = re.search(r'"shortsCountText":{"runs":\[{"text":"([^"]+)"', page_source)
+        if match:
+            count_text = match.group(1)
+            count = extract_numeric_value(count_text)
+            if count > 0:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total shorts count from JSON: {count:,}")
+                return count
+        
+        # Method 3: Scroll and count all elements (fallback)
+        for _ in range(3):
+            scroll_to_bottom(driver)
+            time.sleep(1)
+        
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        # Count unique shorts URLs
+        all_links = soup.find_all('a', href=re.compile(r'/shorts/'))
+        unique_shorts = set()
+        for link in all_links:
+            href = link.get('href', '')
+            if '/shorts/' in href:
+                unique_shorts.add(href)
+        
+        count = len(unique_shorts)
+        
+        if DEBUG_MODE:
+            print(f"  ✓ Total shorts count from elements: {count:,}")
+        
+        return count
+        
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"  ✗ Error getting total shorts count: {e}")
+        return 0
+    finally:
+        driver.quit()
+
+
+def get_video_links(channel_url, max_videos=50, total_videos_count=None):
     """
     Scrape video list and basic metadata from channel videos page.
     
@@ -60,6 +374,10 @@ def get_video_links(channel_url, max_videos=50):
                 
                 video_url = f"{YOUTUBE_BASE_URL}{link_tag['href']}"
                 
+                # Extract video ID from URL
+                video_id_match = re.search(r'v=([A-Za-z0-9_-]+)', video_url)
+                video_id = video_id_match.group(1) if video_id_match else ""
+                
                 # Extract title
                 title_tag = video.find('yt-formatted-string', {'id': 'video-title'})
                 title = title_tag.text.strip() if title_tag else "No Title"
@@ -78,6 +396,7 @@ def get_video_links(channel_url, max_videos=50):
                     upload_date = metadata[1].text.strip()
                 
                 videos.append({
+                    'video_id': video_id,
                     'url': video_url,
                     'title': title,
                     'view_count': views,
@@ -102,13 +421,14 @@ def get_video_links(channel_url, max_videos=50):
         driver.quit()
 
 
-def get_shorts_links(channel_url, max_shorts=50):
+def get_shorts_links(channel_url, max_shorts=50, total_shorts_count=None):
     """
     Scrape shorts from the dedicated channel shorts tab.
     
     Args:
         channel_url (str): Channel URL
         max_shorts (int): Maximum shorts to scrape
+        total_shorts_count (int): Actual total shorts on channel (if known)
         
     Returns:
         list: List of shorts objects with basic info
@@ -118,6 +438,13 @@ def get_shorts_links(channel_url, max_shorts=50):
     try:
         print(f"\n  Fetching shorts list from dedicated tab...")
         
+        # If we know the total count, adjust our target
+        if total_shorts_count:
+            target_count = min(max_shorts, total_shorts_count)
+            print(f"  Target: {target_count} shorts (total on channel: {total_shorts_count})")
+        else:
+            target_count = max_shorts
+        
         shorts_url = f'{channel_url}{CHANNEL_SHORTS_PATH}'
         if not navigate_to_page(driver, shorts_url):
             print("  ⚠ Could not navigate to shorts tab")
@@ -125,10 +452,24 @@ def get_shorts_links(channel_url, max_shorts=50):
         
         wait_for_dynamic_content(driver)
         
-        # Scroll to load more shorts
-        for _ in range(5):
+        # Scroll to load more shorts - adjust scrolls based on target
+        # Estimate: ~30 shorts loaded per page, so scroll enough times
+        scroll_count = max(5, (target_count // 30) + 2)
+        scroll_count = min(scroll_count, 15)  # Cap at 15 scrolls
+        
+        for i in range(scroll_count):
             scroll_to_bottom(driver)
             time.sleep(1)
+            
+            # Check if we've loaded enough
+            if i > 0 and i % 3 == 0:
+                soup_check = BeautifulSoup(driver.page_source, 'html.parser')
+                loaded_links = soup_check.find_all('a', href=re.compile(r'/shorts/'))
+                loaded = len(set(link.get('href', '') for link in loaded_links))
+                if loaded >= target_count:
+                    if DEBUG_MODE:
+                        print(f"  Loaded {loaded} shorts, stopping scroll")
+                    break
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
@@ -188,6 +529,7 @@ def get_shorts_links(channel_url, max_shorts=50):
                         break
                 
                 shorts.append({
+                    'video_id': shorts_href.split('/shorts/')[-1].split('?')[0],  # Extract video ID from URL
                     'url': video_url,
                     'title': title,
                     'view_count': data['views'],

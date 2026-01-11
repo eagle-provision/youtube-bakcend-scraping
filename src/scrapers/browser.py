@@ -47,28 +47,39 @@ def setup_driver():
         raise
 
 
-def navigate_to_page(driver, url):
+def navigate_to_page(driver, url, max_retries=2):
     """
-    Navigate to a URL and wait for page to load.
+    Navigate to a URL and wait for page to load with retry logic.
     
     Args:
         driver: WebDriver instance
         url (str): URL to navigate to
+        max_retries (int): Maximum retry attempts
         
     Returns:
         bool: True if successful, False otherwise
     """
-    try:
-        driver.get(url)
-        WebDriverWait(driver, BROWSER_WAIT_TIME).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
-        )
-        if DEBUG_MODE:
-            print(f"[OK] Navigated to: {url}")
-        return True
-    except Exception as e:
-        print(f"[ERROR] Error navigating to {url}: {e}")
-        return False
+    # Set page load timeout to 60 seconds (shorter than default 120)
+    driver.set_page_load_timeout(60)
+    
+    for attempt in range(max_retries + 1):
+        try:
+            driver.get(url)
+            WebDriverWait(driver, BROWSER_WAIT_TIME).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            if DEBUG_MODE:
+                print(f"[OK] Navigated to: {url}")
+            return True
+        except Exception as e:
+            if attempt < max_retries:
+                if DEBUG_MODE:
+                    print(f"[WARN] Navigation attempt {attempt + 1} failed, retrying...")
+                time.sleep(2)
+            else:
+                print(f"[ERROR] Error navigating to {url}: {e}")
+                return False
+    return False
 
 
 def wait_for_dynamic_content(driver):
