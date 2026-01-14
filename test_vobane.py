@@ -63,7 +63,7 @@ def test_vobane_channel():
         print(f"  Channel Handle: {channel_data.get('channel_handle', 'NOT FOUND')}")
         print(f"  Channel Title: {channel_data.get('channel_title', 'NOT FOUND')}")
         print(f"  Subscribers: {channel_data.get('subscribers', 0):,}")
-        print(f"  Total Views: {channel_data.get('total_views', 0):,}")
+        print(f"  Total Views: {channel_data.get('total_views', 0):,} (should be ~500,503,544)")
         print(f"  Creation Date: {channel_data.get('creation_date', 'NOT FOUND')}")
         print(f"  Country: {channel_data.get('country', 'Not specified')}")
         print(f"  Language: {channel_data.get('default_language', 'Not specified')}")

@@ -236,13 +236,33 @@ def get_total_videos_count(channel_url):
                 return count
         
         # Method 3: Scroll and count all elements (fallback)
-        for _ in range(3):
-            scroll_to_bottom(driver)
-            time.sleep(1)
+        # Keep scrolling until no new content loads
+        previous_count = 0
+        no_change_count = 0
+        max_scrolls = 100  # Safety limit
         
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        video_elements = soup.find_all('ytd-rich-item-renderer')
-        count = len(video_elements)
+        for i in range(max_scrolls):
+            scroll_to_bottom(driver)
+            time.sleep(1.5)
+            
+            # Check if new content loaded
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            video_elements = soup.find_all('ytd-rich-item-renderer')
+            current_count = len(video_elements)
+            
+            if current_count == previous_count:
+                no_change_count += 1
+                if no_change_count >= 3:  # Stop if no new content after 3 scrolls
+                    break
+            else:
+                no_change_count = 0
+            
+            previous_count = current_count
+            
+            if DEBUG_MODE and i % 10 == 0 and i > 0:
+                print(f"    Scrolling videos... found {current_count} items")
+        
+        count = previous_count
         
         if DEBUG_MODE:
             print(f"  ✓ Total videos count from elements: {count:,}")
@@ -304,20 +324,33 @@ def get_total_shorts_count(channel_url):
                 return count
         
         # Method 3: Scroll and count all elements (fallback)
-        for _ in range(3):
+        # Keep scrolling until no new content loads
+        previous_count = 0
+        no_change_count = 0
+        max_scrolls = 200  # Higher limit for shorts since there can be many more
+        
+        for i in range(max_scrolls):
             scroll_to_bottom(driver)
-            time.sleep(1)
+            time.sleep(1.5)
+            
+            # Check if new content loaded
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            shorts_elements = soup.find_all('ytd-rich-item-renderer')
+            current_count = len(shorts_elements)
+            
+            if current_count == previous_count:
+                no_change_count += 1
+                if no_change_count >= 3:  # Stop if no new content after 3 scrolls
+                    break
+            else:
+                no_change_count = 0
+            
+            previous_count = current_count
+            
+            if DEBUG_MODE and i % 10 == 0 and i > 0:
+                print(f"    Scrolling shorts... found {current_count} items")
         
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        # Count unique shorts URLs
-        all_links = soup.find_all('a', href=re.compile(r'/shorts/'))
-        unique_shorts = set()
-        for link in all_links:
-            href = link.get('href', '')
-            if '/shorts/' in href:
-                unique_shorts.add(href)
-        
-        count = len(unique_shorts)
+        count = previous_count
         
         if DEBUG_MODE:
             print(f"  ✓ Total shorts count from elements: {count:,}")

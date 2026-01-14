@@ -58,19 +58,23 @@ def scrape_channel(channel_name, max_videos=50, max_shorts=50, parallel_videos=T
     channel_id = channel_data.get('channel_id', '')
     channel_url = f'{YOUTUBE_BASE_URL}/{channel_name}'
     
-    # Step 1.5: Get actual total counts from YouTube
+    # Step 1.5: Get actual total counts from YouTube tabs
     print("\n[1.5/5] Getting Actual Content Counts...")
     print("-"*60)
     
-    # Calculate total views by scrolling through all content pages
-    # This also gives us accurate video/shorts counts
-    video_count, shorts_count, video_views, shorts_views, accurate_total_views = calculate_total_views_from_pages(channel_url)
+    # Get actual video and shorts counts from YouTube tabs
+    video_count = get_total_videos_count(channel_url)
+    shorts_count = get_total_shorts_count(channel_url)
     
-    # Update channel data with actual counts and accurate total views
+    # Update channel data with actual counts
+    # Total views already extracted from channel page "More info" popup
     channel_data['video_count'] = video_count
     channel_data['shorts_count'] = shorts_count
     channel_data['total_content_count'] = video_count + shorts_count
-    channel_data['total_views'] = accurate_total_views
+    
+    print(f"[OK] Actual Video Count: {video_count}")
+    print(f"[OK] Actual Shorts Count: {shorts_count}")
+    print(f"[OK] Total Views from channel page: {channel_data['total_views']:,}")
     
     # Step 2: Get regular videos
     print("\n[2/5] Scraping Regular Videos...")

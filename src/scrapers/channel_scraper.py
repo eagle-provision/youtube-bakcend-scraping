@@ -130,82 +130,70 @@ def extract_subscribers(driver):
 
 def extract_total_views(driver, page_source):
     """
-    Extract total channel views using multiple methods for accuracy.
-    This is the total views across ALL videos and shorts on the channel.
-    
-    Args:
-        driver: WebDriver instance
-        page_source (str): Page HTML source
-        
-    Returns:
-        int: Total views count
+    Extract total channel views from the about page.
+    Returns int with actual total views from YouTube's about page.
     """
     try:
-        # Method 1: Look for "X views" text in About page stats
-        # This appears in the page source as part of channel stats
-        match = re.search(r'"viewCountText":\s*{\s*"simpleText":\s*"([^"]+\s+views?)"', page_source)
-        if match:
-            views_text = match.group(1)
-            total_views = extract_numeric_value(views_text)
-            if total_views > 1000:  # Sanity check - channels should have >1000 views
-                if DEBUG_MODE:
-                    print(f"  ✓ Total Views (viewCountText): {total_views:,}")
-                return total_views
+        # Navigate to about page where total views are displayed
+        current_url = driver.current_url
         
-        # Method 2: Look for stats in aboutChannelViewModel
-        match = re.search(r'"stats":\s*\[.*?"content":\s*"([^"]+\s+views?)"', page_source, re.DOTALL)
-        if match:
-            views_text = match.group(1)
-            total_views = extract_numeric_value(views_text)
-            if total_views > 1000:
-                if DEBUG_MODE:
-                    print(f"  ✓ Total Views (stats): {total_views:,}")
-                return total_views
-        
-        # Method 3: Look for view count in channel header
-        match = re.search(r'"subscriberCountText".*?"viewCountText":\s*{\s*"simpleText":\s*"([^"]+)"', page_source, re.DOTALL)
-        if match:
-            views_text = match.group(1)
-            total_views = extract_numeric_value(views_text)
-            if total_views > 1000:
-                if DEBUG_MODE:
-                    print(f"  ✓ Total Views (header): {total_views:,}")
-                return total_views
-        
-        # Method 4: Extract from XPath elements containing "views"
-        views_elements = driver.find_elements(By.XPATH, "//span[contains(text(), 'views') or contains(text(), 'view')]")
-        view_counts = []
-        
-        for views_elem in views_elements:
-            views_text = views_elem.text.strip()
-            if 'view' in views_text.lower():
-                count = extract_numeric_value(views_text)
-                if count > 1000:  # Reasonable threshold
-                    view_counts.append(count)
-        
-        if view_counts:
-            # Take the maximum as it's likely the total channel views
-            total_views = max(view_counts)
+        # Parse the channel handle/ID from current URL
+        if '/@' in current_url:
+            # Format: https://www.youtube.com/@channelname/...
+            channel_handle = current_url.split('/@')[1].split('/')[0]
+            about_url = f"https://www.youtube.com/@{channel_handle}/about"
+        elif '/channel/' in current_url:
+            # Format: https://www.youtube.com/channel/CHANNEL_ID/...
+            channel_id = current_url.split('/channel/')[1].split('/')[0]
+            about_url = f"https://www.youtube.com/channel/{channel_id}/about"
+        else:
+            logger.warning(f"Could not parse channel URL: {current_url}")
             if DEBUG_MODE:
-                print(f"  ✓ Total Views (XPath): {total_views:,}")
-            return total_views
+                print(f"  ⚠ Could not parse channel URL")
+            return 0
         
-        # Method 5: Look in About page table/stats section
-        try:
-            soup = BeautifulSoup(page_source, 'html.parser')
-            # Find all text containing "views"
-            for element in soup.find_all(text=re.compile(r'\d+.*views?', re.IGNORECASE)):
-                count = extract_numeric_value(element)
-                if count > 1000:
-                    if DEBUG_MODE:
-                        print(f"  ✓ Total Views (soup): {count:,}")
-                    return count
-        except:
-            pass
+        # Navigate to about page
+        if DEBUG_MODE:
+            print(f"  → Navigating to about page for total views: {about_url}")
+        driver.get(about_url)
+        time.sleep(3)  # Wait for page to load
+        
+        about_source = driver.page_source
+        
+        # Method 1: Extract from JSON "viewCountText" field (most reliable)
+        match = re.search(r'"viewCountText":\s*"([\d,]+)\s*views?"', about_source, re.IGNORECASE)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 0:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (about page - viewCountText): {total_views:,}")
+                return total_views
+        
+        # Method 2: Extract from HTML table
+        match = re.search(r'<td[^>]*>([\d,]+)\s*views?</td>', about_source, re.IGNORECASE)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 0:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (about page - HTML table): {total_views:,}")
+                return total_views
+        
+        # Method 3: Look for viewCountText in metadata
+        match = re.search(r'"viewCountText"[^}]*"content":\s*"([\d,]+)\s*views?"', about_source, re.IGNORECASE)
+        if match:
+            views_text = match.group(1)
+            total_views = extract_numeric_value(views_text)
+            if total_views > 0:
+                if DEBUG_MODE:
+                    print(f"  ✓ Total Views (about page - metadata): {total_views:,}")
+                return total_views
         
         if DEBUG_MODE:
-            print(f"  ⚠ Could not extract total views")
+            print(f"  ⚠ Could not extract total views from about page")
         return 0
+        
     except Exception as e:
         if DEBUG_MODE:
             print(f"  ✗ Error extracting total views: {e}")
@@ -549,73 +537,16 @@ def extract_channel_niche(channel_data, page_source):
 
 def extract_monetization_status(driver, page_source):
     """
-    Detect if channel is monetized by checking for visible indicators.
-    
-    Monetization indicators:
-    - "Join" button (channel membership)
-    - Store/merchandise shelf
-    - Super Thanks enabled
-    - Community posts with paid features
+    Placeholder for monetization status detection.
     
     Args:
         driver: WebDriver instance
         page_source (str): Page HTML source
         
     Returns:
-        str: "Monetized", "Not Monetized", or "Unknown"
+        str: Placeholder status
     """
-    try:
-        indicators = []
-        
-        # Check 1: Look for "Join" button (channel membership)
-        try:
-            join_button = driver.find_elements(By.XPATH, "//button[@aria-label='Join']")
-            if join_button:
-                indicators.append("Membership")
-                if DEBUG_MODE:
-                    print(f"  ✓ Found membership button")
-        except:
-            pass
-        
-        # Check 2: Look for membership in page source
-        if '"sponsor"' in page_source or '"membership"' in page_source.lower():
-            indicators.append("Membership")
-            if DEBUG_MODE:
-                print(f"  ✓ Found membership in source")
-        
-        # Check 3: Look for store/merchandise
-        if '"apparel"' in page_source or '"merchandise"' in page_source.lower():
-            indicators.append("Merchandise")
-            if DEBUG_MODE:
-                print(f"  ✓ Found merchandise")
-        
-        # Check 4: Look for Super Thanks/Super Chat
-        if 'super thanks' in page_source.lower() or 'superchat' in page_source.lower():
-            indicators.append("Super Features")
-            if DEBUG_MODE:
-                print(f"  ✓ Found Super features")
-        
-        # Check 5: Look for YPP (YouTube Partner Program) indicators
-        if '"isPartner":true' in page_source or '"isVerified":true' in page_source:
-            indicators.append("YPP")
-            if DEBUG_MODE:
-                print(f"  ✓ Found YPP indicator")
-        
-        # Determine status based on indicators found
-        if indicators:
-            status = f"Monetized ({', '.join(set(indicators))})"
-            if DEBUG_MODE:
-                print(f"  ✓ Monetization Status: {status}")
-            return status
-        else:
-            if DEBUG_MODE:
-                print(f"  ⚠ No monetization indicators found")
-            return "Unknown"
-            
-    except Exception as e:
-        if DEBUG_MODE:
-            print(f"  ✗ Error detecting monetization: {e}")
-        return "Unknown"
+    return "To be determined"
 
 
 def get_channel_data(channel_name):
