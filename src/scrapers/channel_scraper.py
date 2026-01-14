@@ -147,7 +147,7 @@ def extract_total_views(driver, page_source):
             channel_id = current_url.split('/channel/')[1].split('/')[0]
             about_url = f"https://www.youtube.com/channel/{channel_id}/about"
         else:
-            logger.warning(f"Could not parse channel URL: {current_url}")
+            #logger.warning(f"Could not parse channel URL: {current_url}")
             if DEBUG_MODE:
                 print(f"  ⚠ Could not parse channel URL")
             return 0
