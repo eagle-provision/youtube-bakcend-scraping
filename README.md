@@ -211,7 +211,8 @@ The system auto-detects your GPU and adjusts settings:
 ## Support
 
 For issues or questions:
-1. Check CHANGES_SUMMARY.md for technical details
-2. Verify Excel output structure
-3. Review test_vobane.py validation results
-4. Report specific accuracy concerns with examples
+1. Check CHANGES_SUMMARY.md for technical details.
+2. Verify Excel output structure.
+3. Review test_vobane.py validation results.
+4. Report specific accuracy concerns with examples.
+
